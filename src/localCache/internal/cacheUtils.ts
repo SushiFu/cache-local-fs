@@ -97,21 +97,18 @@ async function getVersion(app: string): Promise<string> {
 }
 
 export async function getCompressionMethod(): Promise<CompressionMethod> {
-    // Enforce Gzip because of some cases of some corrupted archives with Zstd
-    return CompressionMethod.Gzip;
-
-    // const versionOutput = await getVersion("zstd");
-    // const version = semver.clean(versionOutput);
-    // if (!versionOutput.toLowerCase().includes("zstd command line interface")) {
-    //     // zstd is not installed
-    //     return CompressionMethod.Gzip;
-    // } else if (!version || semver.lt(version, "v1.3.2")) {
-    //     // zstd is installed but using a version earlier than v1.3.2
-    //     // v1.3.2 is required to use the `--long` options in zstd
-    //     return CompressionMethod.ZstdWithoutLong;
-    // } else {
-    //     return CompressionMethod.Zstd;
-    // }
+    const versionOutput = await getVersion("zstd");
+    const version = semver.clean(versionOutput);
+    if (!versionOutput.toLowerCase().includes("zstd command line interface")) {
+        // zstd is not installed
+        return CompressionMethod.Gzip;
+    } else if (!version || semver.lt(version, "v1.3.2")) {
+        // zstd is installed but using a version earlier than v1.3.2
+        // v1.3.2 is required to use the `--long` options in zstd
+        return CompressionMethod.ZstdWithoutLong;
+    } else {
+        return CompressionMethod.Zstd;
+    }
 }
 
 export function getCacheFileName(compressionMethod: CompressionMethod): string {
@@ -161,15 +158,21 @@ export async function storeCacheFile(
     cacheStorePath: string,
     cacheFileName: string
 ) {
-    await fs.promises.mkdir(cacheStorePath, {
-        recursive: true,
-        mode: fs.constants.S_IRWXU | fs.constants.S_IRWXG
-    });
-    await io.cp(archivePath, cacheStorePath, { force: true });
-    const rw =
-        fs.constants.S_IRUSR |
-        fs.constants.S_IWUSR |
-        fs.constants.S_IRGRP |
-        fs.constants.S_IWGRP;
-    await fs.promises.chmod(path.join(cacheStorePath, cacheFileName), rw);
+    const lockFile = path.join(cacheStorePath, `${cacheFileName}.lock`);
+    try {
+        await fs.promises.mkdir(cacheStorePath, {
+            recursive: true,
+            mode: fs.constants.S_IRWXU | fs.constants.S_IRWXG
+        });
+        await fs.promises.access(lockFile);
+    } catch (err) {
+        await fs.promises.open(lockFile, "w");
+        await io.cp(archivePath, cacheStorePath, { force: true });
+        const rw =
+            fs.constants.S_IRUSR |
+            fs.constants.S_IWUSR |
+            fs.constants.S_IRGRP |
+            fs.constants.S_IWGRP;
+        await fs.promises.chmod(path.join(cacheStorePath, cacheFileName), rw);
+    }
 }
